@@ -9,10 +9,11 @@ import random
 
 def calculate_h(p,p_):
     "takes setof points p and their corresponting points p_ , calculates the Homography matrix, returns 3x3 matrix"
+    #p is array of correspondance points of image 1, p_ is same for image 2 
     B=p_
     
     A = np.zeros([2*p.shape[0],8])  #construct A from input points
-    for i in range(p.shape[0]): 
+    for i in range(p.shape[0]): #constructs A from given points of image 1 
         A[i*2] = p[i,0],p[i,1],1,0,0,0,-p[i,0]*p_[i,0],-p[i,1]*p_[i,1]    
         A[i*2+1] = 0,0,0, p[i,0],p[i,1],1,-p[i,0]*p_[i,0],-p[i,1]*p_[i,1] 
 #            for j in range(3): 
@@ -37,31 +38,29 @@ def calculate_h(p,p_):
 
 
 def get_correspondance_auto(image1_gray,image2_gray):
-    
-    orb = cv.ORB_create()
-    kp1, des1 = orb.detectAndCompute(image1_gray,None)
+    "get coresspondance points between two given images by sift"
+    orb = cv.ORB_create() 
+    kp1, des1 = orb.detectAndCompute(image1_gray,None)#keypoints and descriptors of first image
     kp2, des2 = orb.detectAndCompute(image2_gray,None)
 
-    bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
+    bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True) #creates a matcher
 
     # Match descriptors.
-    matches = bf.match(des1,des2)
-    matches = sorted(matches, key = lambda x:x.distance)
+    matches = bf.match(des1,des2) #matches the two descriptors
+    matches = sorted(matches, key = lambda x:x.distance) #sorts matches where best matcvhes come first
     
-    p=[]
-    p_ = []
-    k=[]
-    k2=[]
+    p=[] #list of correspondance point in first image
+    p_ = [] #list of correspondance point in second image
+    
     for match in matches:
         index1 = match.trainIdx
-        p.append(kp1[index1].pt)
+        p.append(kp1[index1].pt) 
         index2 = match.queryIdx
         p_.append(kp2[index2].pt)
-        k.append(kp1[index1])
-        k2.append(kp2[index2])
+        
         
     
-    matchImg = cv.drawMatches(image1_gray,kp1,image2_gray,kp2,matches,image2_gray)
+    matchImg = cv.drawMatches(image1_gray,kp1,image2_gray,kp2,matches,image2_gray) #draws the matches on the image
     cv.imwrite('Matches.png', matchImg)
     
     p=np.array(p)
@@ -75,8 +74,8 @@ def inverse_warp(H,image1, image2):
     H_inv = inv(H)
     for i in range(image2.shape[0]):
         for j in range(image2.shape[1]):
-            position = np.matmul(H_inv,np.array([i,j,1]).reshape(-1,1))
-            x=position[0]/position[2]
+            position = np.matmul(H_inv,np.array([i,j,1]).reshape(-1,1)) # inv(H)*position of pixel of image2
+            x=position[0]/position[2] #divides by wieght to get exact value
             y=position[1]/position[2]
            
             print(x)
@@ -112,44 +111,45 @@ def inverse_warp(H,image1, image2):
 #    return  plt.ginput(number_of_points*2)
 # 
     
-def ransac_distance(single_p,single_p_,h):
+def ransac_error(single_p,single_p_,h):
+    "calcualtes difference between the calculated point and the given point"
     point = np.array([single_p[0],single_p[1],1])
     calculated_point_ = np.dot(h,point.reshape(-1,1))
     calculated_point_ /= calculated_point_[2]
     
-    error = calculated_point_[0:2] - single_p_.reshape(-1,1) 
+    error = calculated_point_[0:2] - single_p_.reshape(-1,1) #difference
    
-    error = np.square(error)
+    error = np.square(error) #squared
     
-    error = np.sum(error)
+    error = np.sum(error) #sum of dimensions
     
     return math.sqrt(error)
 
 def ransac(p,p_,threshold,iterations):
-    
+    "takes coreespondance points and for each 4 random pairs it calculates h and counts inliners from a given threshold and keeps the best h"
     max_inliners = 0 
     best_h = None
-    best_error = 10000000
+   
     for i in range(iterations):
         inliners = 0 
         
         
         
-        randp  = np.zeros([4,2]) 
+        randp  = np.zeros([4,2])
         randp_ = np.zeros([4,2])
         
         for j in range(4):
-            random_index = random.randrange(0, p.shape[0])
+            random_index = random.randrange(0, p.shape[0]) #picks random points from the given set
             #print(random_index)
             randp[j]=p[random_index]
             randp_[j]=p_[random_index]
             
-        H = calculate_h(randp,randp_)
+        H = calculate_h(randp,randp_) #calculates h from the 4 random points
         
        
         
         for j in range(p.shape[0]):
-            error = ransac_distance(p[j],p_[j],H)
+            error = ransac_error(p[j],p_[j],H)
            
             
             if(error<threshold):
