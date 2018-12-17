@@ -4,44 +4,70 @@ import cv2 as cv
 from numpy.linalg import inv
 from scipy.interpolate import RectSphereBivariateSpline as interpolate
 import math
+import random
 
 
-
-def calculate_h(p,p_,homo_representation=True):
+def calculate_h(p,p_):
     "takes setof points p and their corresponting points p_ , calculates the Homography matrix, returns 3x3 matrix"
     B=p_
-    if(homo_representation): # a flag indicates whether the given points are hogoneous representation or not
-        A = np.zeros([3*p.shape[0],8]) 
-        for i in range(0,p.shape[0]):
-            for j in range(0,3): 
-                if((i*3+j)%3 != 2 ):
-                    A[i*3+j][j*3:(j*3)+3] = p[i,0:3]
-                else:
-                    A[i*3+j][j*3] = p[i,0]
-                    A[i*3+j][j*3+1] = p[i,1]
-                    
-       
-    else:
-         A = np.ones([3*p.shape[0],8])  #construct A from input points
-         for i in range(p.shape[0]): 
-            for j in range(3): 
-                if((i*3+j)%3 != 2 ):
-                    A[i*3+j][j*3:(j*3)+2] = p[i][0],p[i][1]
-                else:
-                    A[i*3+j][j*3] = p[i][0]
-                    A[i*3+j][j*3+1] = p[i][1]
-         B=np.pad(B,(0,1),'constant',constant_values=1) #pad with ones to make it homogoneous
-         B=B[0:-1,:]
+    
+    A = np.zeros([2*p.shape[0],8])  #construct A from input points
+    for i in range(p.shape[0]): 
+        A[i*2] = p[i,0],p[i,1],1,0,0,0,-p[i,0]*p_[i,0],-p[i,1]*p_[i,1]    
+        A[i*2+1] = 0,0,0, p[i,0],p[i,1],1,-p[i,0]*p_[i,0],-p[i,1]*p_[i,1] 
+#            for j in range(3): 
+#                if((i*3+j)%3 != 2 ):
+#                    A[i*3+j][j*3:(j*3)+2] = p[i][0],p[i][1]
+#                else:
+#                    A[i*3+j][j*3] = p[i][0]
+#                    A[i*3+j][j*3+1] = p[i][1]
+#         B=np.pad(B,(0,1),'constant',constant_values=1) #pad with ones to make it homogoneous
+#         B=B[0:-1,:]
          
          
-     
+    
     B=B.flatten().reshape(-1,1) # flatten and reshape to be one column for dimension suitability
     
     H = np.linalg.lstsq(A,B,rcond=None)[0] #returns H
+    
     H=np.append(H,1)  #puts 1 at the end of H
    
     H = np.reshape(H,[3,3])
     return H
+
+
+def get_correspondance_auto(image1_gray,image2_gray):
+    
+    orb = cv.ORB_create()
+    kp1, des1 = orb.detectAndCompute(image1_gray,None)
+    kp2, des2 = orb.detectAndCompute(image2_gray,None)
+
+    bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
+
+    # Match descriptors.
+    matches = bf.match(des1,des2)
+    matches = sorted(matches, key = lambda x:x.distance)
+    
+    p=[]
+    p_ = []
+    k=[]
+    k2=[]
+    for match in matches:
+        index1 = match.trainIdx
+        p.append(kp1[index1].pt)
+        index2 = match.queryIdx
+        p_.append(kp2[index2].pt)
+        k.append(kp1[index1])
+        k2.append(kp2[index2])
+        
+    
+    matchImg = cv.drawMatches(image1_gray,kp1,image2_gray,kp2,matches,image2_gray)
+    cv.imwrite('Matches.png', matchImg)
+    
+    p=np.array(p)
+    p_=np.array(p_)
+    return p, p_
+
 
 
 def inverse_warp(H,image1, image2):
@@ -82,25 +108,69 @@ def inverse_warp(H,image1, image2):
     return warped
 
 
-def get_correspondance_manually(number_of_points):
-    return  plt.ginput(number_of_points*2)
+#def get_correspondance_manually(number_of_points):
+#    return  plt.ginput(number_of_points*2)
+# 
     
-#
-#p =np.array( [(1,2),(3,2),(5,2),(9,2)])
-#p_ = np.array( [(44,2),(55,2),(99,2),(2,2)])
-#
-#
-##p = np.array([[1,2,3],[4,5,6],[7,8,9],[10,11,12]])
-##p_= np.array([[2,2,1],[2,2,1],[2,2,1],[2,2,1]])
-##
-##
-#H = calculate_h(np.asarray(p),np.asarray(p_),False)
-#print("H= ",H)
+def ransac_distance(single_p,single_p_,h):
+    point = np.array([single_p[0],single_p[1],1])
+    calculated_point_ = np.dot(h,point.reshape(-1,1))
+    calculated_point_ /= calculated_point_[2]
+    
+    error = calculated_point_[0:2] - single_p_.reshape(-1,1) 
+   
+    error = np.square(error)
+    
+    error = np.sum(error)
+    
+    return math.sqrt(error)
 
+def ransac(p,p_,threshold,iterations):
+    
+    max_inliners = 0 
+    best_h = None
+    best_error = 10000000
+    for i in range(iterations):
+        inliners = 0 
+        
+        
+        
+        randp  = np.zeros([4,2]) 
+        randp_ = np.zeros([4,2])
+        
+        for j in range(4):
+            random_index = random.randrange(0, p.shape[0])
+            #print(random_index)
+            randp[j]=p[random_index]
+            randp_[j]=p_[random_index]
+            
+        H = calculate_h(randp,randp_)
+        
+       
+        
+        for j in range(p.shape[0]):
+            error = ransac_distance(p[j],p_[j],H)
+           
+            
+            if(error<threshold):
+                inliners+=1
+            
+            
+        if(inliners>max_inliners):
+            max_inliners = inliners
+            best_h = H
+            
+    return best_h , max_inliners 
+            
+    
+    
 
 image1 = cv.imread("./image1.png")
 image2 = cv.imread("./image2.png")
 
+image1_gray = cv.cvtColor(image1,cv.COLOR_RGB2GRAY)
+image2_gray = cv.cvtColor(image2,cv.COLOR_RGB2GRAY)
+p,p_ = get_correspondance_auto(image1_gray,image2_gray)
 # Initiate FAST object with default values
 # Initiate SIFT detector
 
@@ -113,43 +183,15 @@ image2 = cv.imread("./image2.png")
 
 
 
-orb = cv.ORB_create()
-image1_gray = cv.cvtColor(image1,cv.COLOR_RGB2GRAY)
-image2_gray = cv.cvtColor(image2,cv.COLOR_RGB2GRAY)
 
-kp1, des1 = orb.detectAndCompute(image1_gray,None)
-kp2, des2 = orb.detectAndCompute(image2_gray,None)
+H = calculate_h(p,p_)
 
 
+ransac_h, inliners = ransac(p,p_,20,250)
+print(inliners)
 
-bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
-
-
-# Match descriptors.
-matches = bf.match(des1,des2)
-
-
-matches = sorted(matches, key = lambda x:x.distance)
-
-
-p=[]
-p_ = []
-    
-for i in range (100):
-    index1 = matches[i].trainIdx
-    p.append(kp1[index1].pt)
-    index2 = matches[i].queryIdx
-    p_.append(kp2[index2].pt)
-
-
-
-p=np.array(p)
-p_=np.array(p_)
-
-
-H = calculate_h(p,p_,False)
-
-inverse_warp(H,image1,image2)
+inverse_warp(ransac_h,image1,image2)
+#inverse_warp(H,image1,image2)
 
 #pro = np.matmul(H,np.array([531,508,1]).reshape(-1,1))
 
