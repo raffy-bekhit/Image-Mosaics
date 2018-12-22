@@ -88,15 +88,20 @@ def get_correspondance_manually(image1,image2,number_of_points):
         p1 = np.zeros([(number_of_points//2),2])
         p2 = np.zeros([number_of_points//2,2])
         pts = plt.ginput(n=number_of_points, timeout=0)
-        for i in range(0,number_of_points-1):
-             p1[i//2] = pts[i]
-        for i in range(1,number_of_points):
-            p2[i//2] = pts[i]
-		
-		
-        return p1,p2
-    
-    
+        p1_itr = 0
+        p2_itr = 0
+        for i in range(0, number_of_points):
+            if (i % 2 == 0):
+                p1[p1_itr] = pts[i]
+                print("p1 of index ", p1_itr, " is ", pts[i])
+                p1_itr += 1
+
+            else:
+                p2[p2_itr] = pts[i]
+                print("p2 of index ", p2_itr, " is ", pts[i])
+                p2_itr += 1
+        return p1, p2
+
 
 def InvTransform(h,point):
 
